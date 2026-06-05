@@ -1,0 +1,179 @@
+{
+  "name": "clpzcode-vscode",
+  "displayName": "clpzcode",
+  "description": "Practical VS Code companion for clpzcode with project-aware launch behavior and a real Control Center.",
+  "version": "0.2.0",
+  "publisher": "devnull-bootloader",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Themes",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:clpzcode.start",
+    "onCommand:clpzcode.startInWorkspaceRoot",
+    "onCommand:clpzcode.openDocs",
+    "onCommand:clpzcode.openSetupDocs",
+    "onCommand:clpzcode.openWorkspaceProfile",
+    "onCommand:clpzcode.openControlCenter",
+    "onCommand:clpzcode.newChat",
+    "onCommand:clpzcode.openChat",
+    "onCommand:clpzcode.resumeSession",
+    "onCommand:clpzcode.abortChat",
+    "onView:clpzcode.controlCenter",
+    "onView:clpzcode.chat"
+  ],
+  "main": "./src/extension.js",
+  "files": [
+    "README.md",
+    "media/**",
+    "src/extension.js",
+    "src/presentation.js",
+    "src/state.js",
+    "src/chat/**",
+    "themes/**"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "clpzcode.start",
+        "title": "clpzcode: Launch in Terminal",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.startInWorkspaceRoot",
+        "title": "clpzcode: Launch in Workspace Root",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.openDocs",
+        "title": "clpzcode: Open Repository",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.openSetupDocs",
+        "title": "clpzcode: Open Setup Guide",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.openWorkspaceProfile",
+        "title": "clpzcode: Open Workspace Profile",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.openControlCenter",
+        "title": "clpzcode: Open Control Center",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.newChat",
+        "title": "clpzcode: New Chat",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.openChat",
+        "title": "clpzcode: Open Chat Panel",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.resumeSession",
+        "title": "clpzcode: Resume Session",
+        "category": "clpzcode"
+      },
+      {
+        "command": "clpzcode.abortChat",
+        "title": "clpzcode: Abort Generation",
+        "category": "clpzcode"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "clpzcode",
+          "title": "clpzcode",
+          "icon": "media/clpzcode.svg"
+        }
+      ]
+    },
+    "views": {
+      "clpzcode": [
+        {
+          "id": "clpzcode.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
+          "id": "clpzcode.controlCenter",
+          "name": "Control Center",
+          "type": "webview"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "clpzcode.openChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      }
+    ],
+    "configuration": {
+      "title": "clpzcode",
+      "properties": {
+        "clpzcode.launchCommand": {
+          "type": "string",
+          "default": "clpzcode",
+          "description": "Command run in the integrated terminal when launching clpzcode."
+        },
+        "clpzcode.terminalName": {
+          "type": "string",
+          "default": "clpzcode",
+          "description": "Integrated terminal tab name for clpzcode sessions."
+        },
+        "clpzcode.useOpenAIShim": {
+          "type": "boolean",
+          "default": false,
+          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched clpzcode terminals."
+        },
+        "clpzcode.permissionMode": {
+          "type": "string",
+          "default": "acceptEdits",
+          "enum": ["default", "acceptEdits", "bypassPermissions", "plan"],
+          "enumDescriptions": [
+            "Prompt for permission on each tool use (requires manual approval)",
+            "Auto-approve file edits, prompt for other operations (recommended)",
+            "Auto-approve all operations without prompting",
+            "Read-only mode — no file modifications allowed"
+          ],
+          "description": "Permission mode for chat sessions. Controls which tool operations are auto-approved."
+        }
+      }
+    },
+    "themes": [
+      {
+        "label": "clpzcode Terminal Black",
+        "uiTheme": "vs-dark",
+        "path": "./themes/clpzcode-Terminal-Black.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test ./src/*.test.js",
+    "lint": "node scripts/lint.js",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "keywords": [
+    "clpzcode",
+    "terminal",
+    "theme",
+    "cli",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clpzbug/clpzcode"
+  },
+  "license": "MIT"
+}
