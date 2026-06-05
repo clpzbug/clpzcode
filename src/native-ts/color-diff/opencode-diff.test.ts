@@ -3,8 +3,20 @@
 // Guards the opencode diff palette: the "opencode" theme must render a dark
 // teal/red diff (mirroring opencode.json) — NOT the light fallback it used to
 // hit before buildTheme learned the theme name.
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { ColorDiff } from './index.js'
+
+// These tests assert the truecolor (48;2;r;g;b) escapes, so the renderer must be
+// in truecolor mode. detectColorMode() keys off COLORTERM, which is unset on CI
+// runners (→ 256-color downsample). Pin it so the assertions are env-independent.
+const origColorterm = process.env.COLORTERM
+beforeAll(() => {
+  process.env.COLORTERM = 'truecolor'
+})
+afterAll(() => {
+  if (origColorterm === undefined) delete process.env.COLORTERM
+  else process.env.COLORTERM = origColorterm
+})
 
 const hunk = {
   oldStart: 1,
