@@ -208,4 +208,8 @@ bun install && bun run build
 <div align="center">
 Built for bug bounty hunters and security researchers.<br>
 Only use on targets you are authorized to test.
+
+<br>
+
+Caua Lopes · Brazil · caua.lopes@clpzbug.com
 </div>
