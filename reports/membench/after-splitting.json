@@ -1,0 +1,61 @@
+{
+  "schema": "clpzcode.membench/v1",
+  "meta": {
+    "version": "0.14.0",
+    "startedAt": "2026-05-29T22:28:43.928Z",
+    "finishedAt": "2026-05-29T22:28:44.848Z",
+    "node": "v24.3.0",
+    "heapMb": 11087,
+    "childNodeFlags": [
+      "--max-old-space-size=11087",
+      "--max-semi-space-size=64",
+      "--expose-gc"
+    ],
+    "procSamplingAvailable": true,
+    "host": "linux",
+    "totalMemMB": 15839,
+    "growthDriver": null,
+    "turns": 0
+  },
+  "bundle": {
+    "cliBytes": 6801,
+    "cliMB": 0,
+    "cliMapBytes": 19956,
+    "cliMapMB": 0,
+    "sdkBytes": 9784842,
+    "sdkMB": 9.3
+  },
+  "startup": {
+    "versionString": "0.14.0 (clpzcode)",
+    "samples": 5,
+    "minMs": 60.3,
+    "medianMs": 60.6,
+    "meanMs": 61.2,
+    "maxMs": 64.1,
+    "rawMs": [
+      60.3,
+      64.1,
+      60.4,
+      60.7,
+      60.6
+    ]
+  },
+  "baseline": {
+    "versionPeakRssBytes": 91987968,
+    "versionPeakRssMB": 87.7,
+    "residencyOk": true,
+    "residency": {
+      "rssBytes": 224890880,
+      "rssMB": 214.5,
+      "heapUsedBytes": 44758842,
+      "heapUsedMB": 42.7,
+      "externalBytes": 14204967,
+      "externalMB": 13.5,
+      "nativeBytes": 180132038,
+      "nativeMB": 171.8,
+      "arrayBuffersBytes": 1810
+    },
+    "note": ""
+  },
+  "growth": null
+}
