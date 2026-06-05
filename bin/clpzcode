@@ -1,0 +1,172 @@
+#!/usr/bin/env node
+
+/**
+ * OpenClaude — Claude Code with any LLM
+ *
+ * If dist/cli.mjs exists (built), run that.
+ * Otherwise, tell the user to build first or use `bun run dev`.
+ */
+
+import { spawnSync } from 'child_process'
+import { existsSync, readFileSync } from 'fs'
+import { totalmem, homedir } from 'os'
+import { join, dirname } from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
+
+// Renderer of the built bundle (written by scripts/build.ts). OpenTUI is the default
+// and its native renderer ONLY runs on Bun; the legacy Ink build runs under node.
+const builtRenderer = (() => {
+  try {
+    return readFileSync(join(__dirname, '..', 'dist', 'renderer'), 'utf8').trim()
+  } catch {
+    return 'opentui' // default assumption when no marker (matches build default)
+  }
+})()
+
+// V8 compile cache (Node ≥22): persist parsed/compiled bytecode so the heap
+// re-exec below — and every subsequent invocation — skips recompiling the
+// split chunks. NODE_COMPILE_CACHE is inherited by the re-exec child, where
+// dist/cli.mjs actually loads.
+const COMPILE_CACHE_DIR = join(homedir(), '.clpzcode', 'compile-cache')
+
+// Honour a cgroup memory cap (containers) over host RAM: in a container
+// totalmem() reports HOST memory, so sizing the heap off it lets V8 grow many
+// multiples past the real limit and the kernel OOM-kills on RSS. Keep this in
+// sync with src/utils/systemMemory.ts (this launcher must stay dep-free).
+function cgroupMemLimitBytes() {
+  const total = totalmem()
+  try {
+    const raw = readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim()
+    if (raw !== 'max') {
+      const n = Number(raw)
+      if (Number.isFinite(n) && n > 0 && n < total) return n
+    }
+  } catch {}
+  try {
+    const n = Number(readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf8').trim())
+    if (Number.isFinite(n) && n > 0 && n < total) return n
+  } catch {}
+  return null
+}
+
+// Size the V8 old-space ceiling from EFFECTIVE RAM (min of cgroup cap and host
+// total): ~70% of available, capped at 16 GB. The 4 GB floor applies only when
+// the box is big enough (>=6 GB) — on a small VM/container, forcing 4 GB would
+// license V8 past the real limit and invite the OOM-killer. CLPZCODE_HEAP_MB
+// overrides for manual tuning. This is a SAFETY NET, not the operating point —
+// the in-process governor (src/utils/memoryGovernor.ts) reclaims well below it.
+function computeHeapMb() {
+  const overrideMb = parseInt(process.env.CLPZCODE_HEAP_MB || '', 10)
+  if (Number.isFinite(overrideMb) && overrideMb > 0) return overrideMb
+  const cg = cgroupMemLimitBytes()
+  const effectiveMb = Math.floor(Math.min(cg ?? totalmem(), totalmem()) / (1024 * 1024))
+  const target = Math.floor(effectiveMb * 0.7)
+  const floored = effectiveMb >= 6144 ? Math.max(4096, target) : target
+  return Math.min(16384, Math.max(512, floored))
+}
+
+// OpenTUI's native renderer is Bun-only. If the built bundle is OpenTUI (the default)
+// and we're running under Node, re-exec this launcher under Bun (passing the heap
+// ceiling to the in-process governor). The Ink build runs under node unchanged.
+if (
+  builtRenderer === 'opentui' &&
+  typeof Bun === 'undefined' &&
+  !process.env.CLPZCODE_BUN_REEXEC
+) {
+  const result = spawnSync('bun', [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      CLPZCODE_BUN_REEXEC: '1',
+      CLPZCODE_HEAP_MB: process.env.CLPZCODE_HEAP_MB || String(computeHeapMb()),
+    },
+  })
+  if (result.error) {
+    process.stderr.write(
+      `clpzcode: OpenTUI is the default renderer and requires Bun, but Bun was not found ` +
+        `(${result.error.message}).\n` +
+        `  Install Bun: https://bun.sh\n` +
+        `  …or rebuild the legacy Ink UI:  CLPZCODE_RENDERER=ink bun run build\n`,
+    )
+    process.exit(1)
+  }
+  if (result.signal) process.kill(process.pid, result.signal)
+  process.exit(result.status ?? 0)
+}
+
+if (typeof Bun !== 'undefined') {
+  // Bun runs on JavaScriptCore, not V8: the --max-old-space-size / --expose-gc
+  // re-exec below is a Node-only mechanism (JSC sizes its heap dynamically and
+  // exposes Bun.gc()). Re-execing under Bun would only spawn a redundant process
+  // whose V8 flags are no-ops — and a future Bun could reject them outright. Skip
+  // it; surface the ceiling to the in-process governor instead, which reads
+  // CLPZCODE_HEAP_MB (see memoryGovernor.resolveHeapCeilingBytes).
+  if (!process.env.CLPZCODE_HEAP_MB) {
+    process.env.CLPZCODE_HEAP_MB = String(computeHeapMb())
+  }
+} else if (!process.env.CLPZCODE_HEAP_SET) {
+  // Node: respawn with a proper heap limit before any application code loads.
+  // Setting process.env.NODE_OPTIONS at runtime is ineffective — V8 fixes the
+  // heap size at process startup. The only reliable way is to re-exec with the
+  // CLI flag. CLPZCODE_HEAP_SET guards against infinite re-spawn.
+  const heapMb = computeHeapMb()
+  const result = spawnSync(
+    process.execPath,
+    [`--max-old-space-size=${heapMb}`, '--max-semi-space-size=64', '--expose-gc', ...process.argv.slice(1)],
+    {
+      env: {
+        ...process.env,
+        CLPZCODE_HEAP_SET: '1',
+        NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE || COMPILE_CACHE_DIR,
+      },
+      stdio: 'inherit',
+    },
+  )
+  if (result.error) {
+    process.stderr.write(`clpzcode: failed to start: ${result.error.message}\n`)
+    process.exit(1)
+  }
+  if (result.signal) {
+    // Propagate signal to shell so exit code reflects how process was killed
+    process.kill(process.pid, result.signal)
+  }
+  process.exit(result.status ?? 0)
+}
+
+// Enable the compile cache before importing dist/cli.mjs. Covers the Bun
+// runtime (no re-exec) and any node entry that bypassed the env var above;
+// no-op pre-Node-22. NODE_COMPILE_CACHE (set on the re-exec) already covers
+// the common node path, but this guarantees it regardless of entry route.
+if (typeof Bun === 'undefined') {
+  try {
+    const { enableCompileCache } = await import('module')
+    enableCompileCache?.(process.env.NODE_COMPILE_CACHE || COMPILE_CACHE_DIR)
+  } catch {}
+}
+
+if (existsSync(distPath)) {
+  // Clear visible screen + scrollback before the TUI renders
+  process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+  try {
+    await import(pathToFileURL(distPath).href)
+  } catch (err) {
+    process.stderr.write(`\nclpzcode: failed to load dist/cli.mjs — ${err}\nTry rebuilding: bun run build\n`)
+    process.exit(1)
+  }
+} else {
+  console.error(`
+  openclaude: dist/cli.mjs not found.
+
+  Build first:
+    bun run build
+
+  Or run directly with Bun:
+    bun run dev
+
+  See README.md for setup instructions.
+`)
+  process.exit(1)
+}
