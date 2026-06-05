@@ -148,6 +148,11 @@ Each step feeds the next. It doesn't wait for you between phases.
 
 ## vs Claude Code
 
+> **clpzcode is a fork of Anthropic's Claude Code.**
+> It builds on Claude Code's agent core and extends it with multi-provider support and
+> offensive-security tooling. The table below contrasts this fork with upstream Claude Code.
+> See [Acknowledgements](#acknowledgements).
+
 | | clpzcode | Claude Code |
 |---|---|---|
 | **Provider** | Any LLM | Anthropic only |
@@ -202,6 +207,19 @@ bun install && bun run build
 - [Advanced setup](docs/advanced-setup.md)
 - [Local models via LiteLLM](docs/litellm-setup.md)
 - [Hook chains](docs/hook-chains.md)
+
+---
+
+## Acknowledgements
+
+clpzcode is a fork of **[Claude Code](https://github.com/anthropics/claude-code)** by Anthropic.
+The agent runtime, terminal UI, permission model, and tool framework originate from Claude Code;
+this project extends them with multi-provider model support (xAI, OpenAI, Ollama, GitHub Models,
+Gemini) and an offensive-security toolset. All credit for the underlying agent architecture goes
+to Anthropic and the Claude Code contributors. "Claude" and "Claude Code" are trademarks of
+Anthropic — this is an independent, unaffiliated fork.
+
+See [LICENSE](LICENSE) for licensing and attribution details.
 
 ---
 

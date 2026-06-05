@@ -1,6 +1,10 @@
+import { homedir } from 'os'
+import { join } from 'path'
+
 export const NUCLEI_TOOL_NAME = 'Nuclei'
 
-export const TEMPLATES_BASE = '/home/clpz/nuclei-templates'
+// Override with NUCLEI_TEMPLATES_DIR; defaults to nuclei's own ~/nuclei-templates.
+export const TEMPLATES_BASE = process.env.NUCLEI_TEMPLATES_DIR ?? join(homedir(), 'nuclei-templates')
 
 export const PROFILE_MAP: Record<string, string> = {
   pentest:        `${TEMPLATES_BASE}/profiles/pentest.yml`,

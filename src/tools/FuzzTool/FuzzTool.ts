@@ -1,6 +1,6 @@
 import { mkdtemp, rm, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { tmpdir } from 'os'
+import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import { buildTool, type ToolDef, type ToolUseContext } from '../../Tool.js'
@@ -12,6 +12,8 @@ import { DESCRIPTION, PROMPT } from './prompt.js'
 import { renderToolResultMessage, renderToolUseProgressMessage } from './UI.js'
 
 const SECLISTS = '/usr/share/seclists'
+// Curated local wordlists; override with CLPZ_WORDLISTS_DIR.
+const CLPZ_WORDLISTS = process.env.CLPZ_WORDLISTS_DIR ?? join(homedir(), '.clpzcode', 'wordlists')
 const WORDLIST_MAP: Record<string, string> = {
   // Directory/file discovery
   common: `${SECLISTS}/Discovery/Web-Content/common.txt`,
@@ -49,7 +51,7 @@ const WORDLIST_MAP: Record<string, string> = {
   // Exposed files discovery (secrets, configs, git)
   'secrets': `${SECLISTS}/Discovery/Web-Content/quickhits.txt`, // .env, .git/, .htpasswd, wp-config.php, backups (2567 entries)
   // Spring Boot actuator endpoints (heapdump=memory dump, env=secrets, shutdown=RCE)
-  'spring-actuator': `/home/clpz/.clpzcode/wordlists/spring-actuator.txt`, // local curated list: /actuator/*, /h2-console, Swagger
+  'spring-actuator': `${CLPZ_WORDLISTS}/spring-actuator.txt`, // local curated list: /actuator/*, /h2-console, Swagger
   // WordPress-specific paths (plugins, themes, admin)
   'wordpress': `${SECLISTS}/Discovery/Web-Content/CMS/wordpress.fuzz.txt`, // WP endpoints (plugins, xmlrpc, wp-json)
 }
