@@ -203,8 +203,14 @@ export async function startXaiOAuthCallback(params: {
     }
   })
 
+  // Reflect the actually-bound port so callers can pass port 0 (OS-assigned)
+  // and avoid a bind/close/rebind race on a pre-reserved port.
+  const address = server.address()
+  const boundPort =
+    address && typeof address === 'object' ? address.port : params.port
+
   return {
-    port: params.port,
+    port: boundPort,
     waitForCallback: () => callbackPromise,
     close: () => {
       if (!settled) {

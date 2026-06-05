@@ -1,34 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
 
 import { startXaiOAuthCallback } from './xaiOAuthCallback.js'
 
 /**
- * Acquire an OS-assigned ephemeral port the test can hand back. Bun's test
- * runner can pile concurrent files; we don't want them stomping on each
- * other or on a developer's actual 56121.
+ * Bind to port 0 so the OS assigns a free port atomically and the server hands
+ * back the one it actually bound. Bun's test runner can pile concurrent files;
+ * a pre-reserved port (bind/close/rebind) leaves a window where another file
+ * grabs it, which surfaced on CI as ConnectionRefused.
  */
-async function getEphemeralPort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const port = (server.address() as AddressInfo).port
-  await new Promise<void>(resolve => server.close(() => resolve()))
-  return port
-}
-
 async function startTestServer() {
-  const port = await getEphemeralPort()
   const handle = await startXaiOAuthCallback({
-    port,
+    port: 0,
     host: '127.0.0.1',
     callbackPath: '/callback',
     successTitle: 'xAI OAuth complete',
   })
-  return { handle, port }
+  return { handle, port: handle.port }
 }
 
 describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
@@ -211,13 +198,13 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   })
 
   test('successTitle is HTML-escaped in the success page', async () => {
-    const port = await getEphemeralPort()
     const handle = await startXaiOAuthCallback({
-      port,
+      port: 0,
       host: '127.0.0.1',
       callbackPath: '/callback',
       successTitle: '<script>alert(1)</script>',
     })
+    const port = handle.port
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
