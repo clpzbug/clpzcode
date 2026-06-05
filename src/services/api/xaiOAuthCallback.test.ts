@@ -3,6 +3,25 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { startXaiOAuthCallback } from './xaiOAuthCallback.js'
 
 /**
+ * Poll the loopback server until it actually accepts a TCP connection. On CI,
+ * fetch right after a resolved listen() can still hit ConnectionRefused (the
+ * accept queue isn't ready yet), so probe a throwaway path — any HTTP response
+ * (e.g. 404) means it's up; ConnectionRefused means retry. Hitting a wrong path
+ * never settles the callback, so this is side-effect free.
+ */
+async function waitUntilAccepting(port: number): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/__readiness_probe__`)
+      return
+    } catch {
+      await new Promise(r => setTimeout(r, 20))
+    }
+  }
+  throw new Error(`server on 127.0.0.1:${port} never started accepting`)
+}
+
+/**
  * Bind to port 0 so the OS assigns a free port atomically and the server hands
  * back the one it actually bound. Bun's test runner can pile concurrent files;
  * a pre-reserved port (bind/close/rebind) leaves a window where another file
@@ -15,6 +34,7 @@ async function startTestServer() {
     callbackPath: '/callback',
     successTitle: 'xAI OAuth complete',
   })
+  await waitUntilAccepting(handle.port)
   return { handle, port: handle.port }
 }
 
@@ -206,6 +226,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     })
     const port = handle.port
     cleanup = () => handle.close()
+    await waitUntilAccepting(port)
 
     const callbackPromise = handle.waitForCallback()
     const res = await fetch(
