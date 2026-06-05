@@ -1,0 +1,70 @@
+import React, { useEffect, useState } from 'react';
+import { gracefulShutdown } from 'src/utils/gracefulShutdown.js';
+import { writeToStdout } from 'src/utils/process.js';
+import { Box, color, Text, useTheme } from '../ink.js';
+import { addMcpConfig, getAllMcpConfigs } from '../services/mcp/config.js';
+import type { ConfigScope, McpServerConfig, ScopedMcpServerConfig } from '../services/mcp/types.js';
+import { plural } from '../utils/stringUtils.js';
+import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
+import { SelectMulti } from './CustomSelect/SelectMulti.js';
+import { Byline } from './design-system/Byline.js';
+import { Dialog } from './design-system/Dialog.js';
+import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
+type Props = {
+  servers: Record<string, McpServerConfig>;
+  scope: ConfigScope;
+  onDone(): void;
+};
+export function MCPServerDesktopImportDialog({ servers, scope, onDone }: Props) {
+  const serverNames = Object.keys(servers);
+  const [existingServers, setExistingServers] = useState<Record<string, ScopedMcpServerConfig>>({});
+  useEffect(() => {
+    getAllMcpConfigs().then(({ servers }) => setExistingServers(servers));
+  }, []);
+  const collisions = serverNames.filter(name => existingServers[name] !== undefined);
+  const onSubmit = async function onSubmit(selectedServers: string[]) {
+    let importedCount = 0;
+    for (const serverName of selectedServers) {
+      const serverConfig = servers[serverName];
+      if (serverConfig) {
+        let finalName = serverName;
+        if (existingServers[finalName] !== undefined) {
+          let counter = 1;
+          while (existingServers[`${serverName}_${counter}`] !== undefined) {
+            counter++;
+          }
+          finalName = `${serverName}_${counter}`;
+        }
+        await addMcpConfig(finalName, serverConfig, scope);
+        importedCount++;
+      }
+    }
+    done(importedCount);
+  };
+  const [theme] = useTheme();
+  const done = (importedCount: number) => {
+    if (importedCount > 0) {
+      writeToStdout(`\n${color("success", theme)(`Successfully imported ${importedCount} MCP ${plural(importedCount, "server")} to ${scope} config.`)}\n`);
+    } else {
+      writeToStdout("\nNo servers were imported.");
+    }
+    onDone();
+    gracefulShutdown();
+  };
+  const handleEscCancel = () => {
+    done(0);
+  };
+  return (
+    <>
+      <Dialog title="Import MCP Servers from Claude Desktop" subtitle={`Found ${serverNames.length} MCP ${plural(serverNames.length, "server")} in Claude Desktop.`} color="success" onCancel={handleEscCancel} hideInputGuide={true}>
+        {collisions.length > 0 && <Text color="warning">Note: Some servers already exist with the same name. If selected, they will be imported with a numbered suffix.</Text>}
+        <Text>Please select the servers you want to import:</Text>
+        <SelectMulti options={serverNames.map(server => ({
+          label: `${server}${collisions.includes(server) ? " (already exists)" : ""}`,
+          value: server
+        }))} defaultValue={serverNames.filter(name => !collisions.includes(name))} onSubmit={onSubmit} onCancel={handleEscCancel} hideIndexes={true} />
+      </Dialog>
+      <Box paddingX={1}><Text dimColor={true} italic={true}><Byline><KeyboardShortcutHint shortcut="Space" action="select" /><KeyboardShortcutHint shortcut="Enter" action="confirm" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" /></Byline></Text></Box>
+    </>
+  );
+}

@@ -1,0 +1,205 @@
+import capitalize from 'lodash-es/capitalize.js';
+import * as React from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useExitOnCtrlCDWithKeybindings } from 'src/hooks/useExitOnCtrlCDWithKeybindings.js';
+import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
+import { FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled } from 'src/utils/fastMode.js';
+import { Box, Text } from '../ink.js';
+import { useKeybindings } from '../keybindings/useKeybinding.js';
+import { useAppState, useSetAppState } from '../state/AppState.js';
+import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
+import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
+import { getModelOptions, type ModelOption } from '../utils/model/modelOptions.js';
+import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
+import { Select } from './CustomSelect/index.js';
+import { Byline } from './design-system/Byline.js';
+import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
+import { Pane } from './design-system/Pane.js';
+import { effortLevelToSymbol } from './EffortIndicator.js';
+export type ModelPickerDiscoveryState = {
+  message: string;
+  tone?: 'info' | 'success' | 'warning' | 'error';
+};
+export type Props = {
+  initial: string | null;
+  sessionModel?: ModelSetting;
+  onSelect: (model: string | null, effort: EffortLevel | undefined) => void;
+  onCancel?: () => void;
+  isStandaloneCommand?: boolean;
+  showFastModeNotice?: boolean;
+  /** Overrides the dim header line below "Select model". */
+  headerText?: string;
+  /**
+   * When true, skip writing effortLevel to userSettings on selection.
+   * Used by the assistant installer wizard where the model choice is
+   * project-scoped (written to the assistant's .claude/settings.json via
+   * install.ts) and should not leak to the user's global ~/.claude/settings.
+   */
+  skipSettingsWrite?: boolean;
+  optionsOverride?: ModelOption[];
+  discoveryState?: ModelPickerDiscoveryState;
+  onRefresh?: () => void;
+};
+const NO_PREFERENCE = '__NO_PREFERENCE__';
+function mapDiscoveryToneToColor(tone: ModelPickerDiscoveryState['tone']): 'error' | 'warning' | 'success' | 'subtle' {
+  switch (tone) {
+    case 'error':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    case 'success':
+      return 'success';
+    case 'info':
+    default:
+      return 'subtle';
+  }
+}
+export function ModelPicker({
+  initial,
+  sessionModel,
+  onSelect,
+  onCancel,
+  isStandaloneCommand,
+  showFastModeNotice,
+  headerText,
+  skipSettingsWrite,
+  optionsOverride,
+  discoveryState,
+  onRefresh
+}: Props) {
+  const setAppState = useSetAppState();
+  const exitState = useExitOnCtrlCDWithKeybindings();
+  const initialValue = initial === null ? NO_PREFERENCE : initial;
+  const [focusedValue, setFocusedValue] = useState(initialValue);
+  const isFastMode = useAppState(s => isFastModeEnabled() ? s.fastMode : false);
+  const [hasToggledEffort, setHasToggledEffort] = useState(false);
+  const effortValue = useAppState(s => s.effortValue);
+  const [effort, setEffort] = useState(() => effortValue !== undefined ? convertEffortValueToLevel(effortValue) : undefined);
+  const modelOptions = optionsOverride ?? getModelOptions(isFastMode ?? false);
+  const optionsWithInitial = useMemo(() => {
+    if (initial !== null && !modelOptions.some(opt => opt.value === initial)) {
+      return [...modelOptions, {
+        value: initial,
+        label: modelDisplayString(initial),
+        description: "Current model"
+      }];
+    }
+    return modelOptions;
+  }, [initial, modelOptions]);
+  const selectOptions = useMemo(() => optionsWithInitial.map(opt => ({
+    ...opt,
+    value: opt.value === null ? NO_PREFERENCE : opt.value
+  })), [optionsWithInitial]);
+  const initialFocusValue = useMemo(() => selectOptions.some(_ => _.value === initialValue) ? initialValue : selectOptions[0]?.value ?? undefined, [initialValue, selectOptions]);
+  const visibleCount = Math.min(10, selectOptions.length);
+  const hiddenCount = Math.max(0, selectOptions.length - visibleCount);
+  const focusedModelName = useMemo(() => selectOptions.find(opt => opt.value === focusedValue)?.label, [focusedValue, selectOptions]);
+  const { focusedSupportsEffort, focusedSupportsMax } = useMemo(() => {
+    const focusedModel = resolveOptionModel(focusedValue);
+    return {
+      focusedSupportsEffort: focusedModel ? modelSupportsEffort(focusedModel) : false,
+      focusedSupportsMax: focusedModel ? modelSupportsMaxEffort(focusedModel) : false
+    };
+  }, [focusedValue]);
+  const focusedDefaultEffort = useMemo(() => getDefaultEffortLevelForOption(focusedValue), [focusedValue]);
+  const displayEffort = effort === "max" && !focusedSupportsMax ? "high" : effort;
+  const handleFocus = useCallback((value: string) => {
+    setFocusedValue(value);
+    if (!hasToggledEffort && effortValue === undefined) {
+      setEffort(getDefaultEffortLevelForOption(value));
+    }
+  }, [effortValue, hasToggledEffort]);
+  const handleCycleEffort = useCallback((direction: 'left' | 'right') => {
+    if (!focusedSupportsEffort) {
+      return;
+    }
+    setEffort(prev => cycleEffortLevel(prev ?? focusedDefaultEffort, direction, focusedSupportsMax));
+    setHasToggledEffort(true);
+  }, [focusedDefaultEffort, focusedSupportsEffort, focusedSupportsMax]);
+  useKeybindings({
+    "modelPicker:decreaseEffort": () => handleCycleEffort("left"),
+    "modelPicker:increaseEffort": () => handleCycleEffort("right"),
+    ...(onRefresh ? {
+      "modelPicker:refresh": () => onRefresh()
+    } : {})
+  }, {
+    context: "ModelPicker"
+  });
+  const handleSelect = useCallback(function handleSelect(value: string) {
+    logEvent("tengu_model_command_menu_effort", {
+      effort: effort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    });
+    if (!skipSettingsWrite) {
+      const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
+      const persistable = toPersistableEffort(effortLevel);
+      if (persistable !== undefined) {
+        updateSettingsForSource("userSettings", {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        effortLevel: persistable as any
+        });
+      }
+      setAppState(prev => ({
+        ...prev,
+        effortValue: effortLevel
+      }));
+    }
+    const selectedModel = resolveOptionModel(value);
+    const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? effort : undefined;
+    if (value === NO_PREFERENCE) {
+      onSelect(null, selectedEffort);
+      return;
+    }
+    onSelect(value, selectedEffort);
+  }, [effort, hasToggledEffort, onSelect, setAppState, skipSettingsWrite]);
+  const headerLine = headerText ?? "Switch between Claude models. Applies to this session and future clpzcode sessions. For other/previous model names, specify with --model.";
+  const refreshHint = onRefresh ? <ConfigurableShortcutHint action="modelPicker:refresh" context="ModelPicker" fallback="r" description="refresh models" /> : null;
+  const discoveryLine = discoveryState ? <Text color={mapDiscoveryToneToColor(discoveryState.tone)}>{discoveryState.message}{refreshHint ? <Text color="subtle"> {" "}· {refreshHint}</Text> : null}</Text> : refreshHint ? <Text dimColor={true}>{refreshHint}</Text> : null;
+  const content = (
+    <Box flexDirection="column">
+      <Box flexDirection="column">
+        <Box marginBottom={1} flexDirection="column">
+          <Text color="remember" bold={true}>Select model</Text>
+          <Text dimColor={true}>{headerLine}</Text>
+          {sessionModel && <Text dimColor={true}>Currently using {modelDisplayString(sessionModel)} for this session (set by plan mode). Selecting a model will undo this.</Text>}
+          {discoveryLine}
+        </Box>
+        <Box flexDirection="column" marginBottom={1}>
+          <Box flexDirection="column"><Select defaultValue={initialValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={onCancel ?? (() => {})} visibleOptionCount={visibleCount} /></Box>
+          {hiddenCount > 0 && <Box paddingLeft={3}><Text dimColor={true}>and {hiddenCount} more…</Text></Box>}
+        </Box>
+        <Box marginBottom={1} flexDirection="column">{focusedSupportsEffort ? <Text dimColor={true}><EffortLevelIndicator effort={displayEffort} />{" "}{capitalize(displayEffort)} effort{displayEffort === focusedDefaultEffort ? " (default)" : ""}{" "}<Text color="subtle">← → to adjust</Text></Text> : <Text color="subtle"><EffortLevelIndicator effort={undefined} /> Effort not supported{focusedModelName ? ` for ${focusedModelName}` : ""}</Text>}</Box>
+        {isFastModeEnabled() ? showFastModeNotice ? <Box marginBottom={1}><Text dimColor={true}>Fast mode is <Text bold={true}>ON</Text> and available with{" "}{FAST_MODE_MODEL_DISPLAY} only (/fast). Switching to other models turn off fast mode.</Text></Box> : isFastModeAvailable() && !isFastModeCooldown() ? <Box marginBottom={1}><Text dimColor={true}>Use <Text bold={true}>/fast</Text> to turn on Fast mode ({FAST_MODE_MODEL_DISPLAY} only).</Text></Box> : null : null}
+      </Box>
+      {isStandaloneCommand && <Text dimColor={true} italic={true}>{exitState.pending ? <>Press {exitState.keyName} again to exit</> : <Byline><KeyboardShortcutHint shortcut="Enter" action="confirm" />{refreshHint}<ConfigurableShortcutHint action="select:cancel" context="Select" fallback="Esc" description="exit" /></Byline>}</Text>}
+    </Box>
+  );
+  if (!isStandaloneCommand) {
+    return content;
+  }
+  return <Pane color="permission">{content}</Pane>;
+}
+function resolveOptionModel(value?: string): string | undefined {
+  if (!value) return undefined;
+  return value === NO_PREFERENCE ? getDefaultMainLoopModel() : parseUserSpecifiedModel(value);
+}
+function EffortLevelIndicator({ effort }: { effort?: EffortLevel }) {
+  return <Text color={effort ? "claude" : "subtle"}>{effortLevelToSymbol(effort ?? "low")}</Text>;
+}
+function cycleEffortLevel(current: EffortLevel, direction: 'left' | 'right', includeMax: boolean): EffortLevel {
+  const levels: EffortLevel[] = includeMax ? ['low', 'medium', 'high', 'max'] : ['low', 'medium', 'high'];
+  // If the current level isn't in the cycle (e.g. 'max' after switching to a
+  // non-Opus model), clamp to 'high'.
+  const idx = levels.indexOf(current);
+  const currentIndex = idx !== -1 ? idx : levels.indexOf('high');
+  if (direction === 'right') {
+    return levels[(currentIndex + 1) % levels.length]!;
+  } else {
+    return levels[(currentIndex - 1 + levels.length) % levels.length]!;
+  }
+}
+function getDefaultEffortLevelForOption(value?: string): EffortLevel {
+  const resolved = resolveOptionModel(value) ?? getDefaultMainLoopModel();
+  const defaultValue = getDefaultEffortForModel(resolved);
+  return defaultValue !== undefined ? convertEffortValueToLevel(defaultValue) : 'high';
+}
